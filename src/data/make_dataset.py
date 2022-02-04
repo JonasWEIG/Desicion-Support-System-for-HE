@@ -7,6 +7,7 @@ Created on Thu Apr 22 14:03:47 2021
 import pandas as pd
 import numpy as np
 import os
+from utils import *
 
 def clean_exam(exam_data):
     exam_data = exam_data.astype({'bonus': float})
@@ -582,17 +583,23 @@ def show_ects(path, StudStart):
 
     return df_ECTS
 
-# load data
-
-### TO DO ###
-
-#test = clean_exam(df_PrufData)
-concated_data = concate_all_data(clean_exam(df_PrufData), df_StudData)
-df_StudStart = stud_data(concated_data, 20212)
-df_next = getting_next_study(df_StudStart, df_Master_Stud)
-df_Studies, df_StudStart, df_next = delete_personal_data(concated_data, df_StudStart, df_next)
-df_demo = demo_data(df_Studies, df_stadt)
-path_preparation = path_preparation(df_Studies)
-df_layers = get_exam_data(df_Studies, df_StudStart, df_Stud_struc)
-df_Path = path_final(path_preparation, df_layers, 20212)
-df_ECTS = show_ects(df_Path, df_StudStart)
+if __name__ == '__main__':
+    args = parse_args()
+    
+    # load data
+    df_PrufData = pd.read_csv(os.path.abspath(args.exam_data_ba), sep=';', engine = 'python', encoding = 'utf-8')
+    df_StudData = pd.read_csv(os.path.abspath(args.student_data), sep=';', engine = 'python', encoding = 'utf-8')
+    df_Master_Stud = pd.read_csv(os.path.abspath(args.next_master_study_ba), sep=';', engine = 'python', encoding = 'utf-8')
+    df_stadt = pd.read_csv(os.path.abspath(args.city_names), sep=';', engine = 'python', encoding = 'windows-1252')
+    df_Stud_struc = pd.read_csv(os.path.abspath(args.exam_regulation_ba), sep=';', engine = 'python', encoding = 'windows-1252')
+    
+    #test = clean_exam(df_PrufData)
+    concated_data = concate_all_data(clean_exam(df_PrufData), df_StudData)
+    df_StudStart = stud_data(concated_data, 20212)
+    df_next = getting_next_study(df_StudStart, df_Master_Stud)
+    df_Studies, df_StudStart, df_next = delete_personal_data(concated_data, df_StudStart, df_next)
+    df_demo = demo_data(df_Studies, df_stadt)
+    path_preparation = path_preparation(df_Studies)
+    df_layers = get_exam_data(df_Studies, df_StudStart, df_Stud_struc)
+    df_Path = path_final(path_preparation, df_layers, 20212)
+    df_ECTS = show_ects(df_Path, df_StudStart)
