@@ -583,23 +583,94 @@ def show_ects(path, StudStart):
 
     return df_ECTS
 
+def add_percentile (df_StudStart):
+    #df_MNR = pd.read_pickle(os.path.abspath('..\\WiSe2122\\pickles\\df_studstart_bachelor_wise21.plk'))
+    df_StudStart.loc[df_StudStart.bestanden == 'EN', 'Endnote'] = 5
+
+    cohorts = pd.unique(df_StudStart['Startsemester']).tolist()
+    studies = pd.unique(df_StudStart['studiengang']).tolist()
+    #cohorts = [20202]
+    df_final = pd.DataFrame(columns = ['MNR_Zweit', 'Endnote', 'y', 'percentile'])
+
+    for cohort in cohorts:
+        for study in studies:
+             df = df_StudStart.loc[(df_StudStart.Endnote != 0) & 
+                              (df_StudStart.Startsemester == cohort) & (df_StudStart.studiengang == study), ['MNR_Zweit', 'Endnote']]
+             df = df.sort_values(by = ['Endnote'])
+             df['y'] = np.arange(1, len(df.Endnote)+1)/len(df.Endnote)
+             grades = pd.unique(df['Endnote']).tolist()
+             for grade in grades:
+                df.loc[df.Endnote == grade, 'percentile'] = df.loc[df.Endnote == grade, 'y'].max()
+             df_final = pd.concat([df_final, df], ignore_index=True)
+                
+
+    df_StudStart = df_StudStart.merge(df_final[['MNR_Zweit', 'percentile']], on= 'MNR_Zweit', how = 'left')
+    
+    return df_StudStart
+
+
+def save_data(typ='bachelor'):
+    if typ == 'bachelor':
+        # save as pickle
+
+        # save as pickle
+        df_Studies.to_pickle(os.path.abspath('../../data/interim/bachelor/df_Studies.pkl'))
+        df_StudStart.to_pickle(os.path.abspath('../../data/interim/bachelor/df_studstart.pkl'))
+        df_next.to_pickle(os.path.abspath('../../data/interim/bachelor/df_next_study.pkl'))
+        df_Path.to_pickle(os.path.abspath('../../data/interim/bachelor/df_path.pkl'))
+        df_layers.to_pickle(os.path.abspath('../../data/interim/bachelor/df_layers.pkl'))
+        df_ECTS.to_pickle(os.path.abspath('../../data/interim/bachelor/df_ects.pkl'))
+        df_demo.to_pickle(os.path.abspath('../../data/interim/bachelor/df_demo.pkl'))
+        
+        # save as csv
+        df_layers.to_csv(os.path.abspath('../../data/processed/bachelor/df_layers.csv'), sep=';', decimal=',')
+        df_StudStart.to_csv((os.path.abspath('../../data/processed/bachelor/df_studstart.csv')), sep=';', decimal=',')
+        df_next.to_csv((os.path.abspath('../../data/processed/bachelor/df_next_study.csv')), sep=';', decimal=',')
+        df_Path.to_csv(os.path.abspath('../../data/processed/bachelor/df_path.csv'), sep=';', decimal=',')
+        df_ECTS.to_csv(os.path.abspath('../../data/processed/bachelor/df_ects.csv'), sep=';', decimal=',')
+        df_demo.to_csv(os.path.abspath('../../data/processed/bachelor/df_demo.csv'), sep=';', decimal=',')
+       
+    else:
+
+        # save as pickle
+        df_Studies.to_pickle(os.path.abspath('../../data/interim/master/df_Studies.pkl'))
+        df_StudStart.to_pickle(os.path.abspath('../../data/interim/master/df_studstart.pkl'))
+        df_next.to_pickle(os.path.abspath('../../data/interim/master/df_next_study.pkl'))
+        df_Path.to_pickle(os.path.abspath('../../data/interim/master/df_path.pkl'))
+        df_layers.to_pickle(os.path.abspath('../../data/interim/master/df_layers.pkl'))
+        df_ECTS.to_pickle(os.path.abspath('../../data/interim/master/df_ects.pkl'))
+        df_demo.to_pickle(os.path.abspath('../../data/interim/master/df_demo.pkl'))
+        
+        # save as csv
+        df_layers.to_csv(os.path.abspath('../../data/processed/master/df_layers.csv'), sep=';', decimal=',')
+        df_StudStart.to_csv((os.path.abspath('../../data/processed/master/df_studstart.csv')), sep=';', decimal=',')
+        df_next.to_csv((os.path.abspath('../../data/processed/master/df_next_study.csv')), sep=';', decimal=',')
+        df_Path.to_csv(os.path.abspath('../../data/processed/master/df_path.csv'), sep=';', decimal=',')
+        df_ECTS.to_csv(os.path.abspath('../../data/processed/master/df_ects.csv'), sep=';', decimal=',')
+        df_demo.to_csv(os.path.abspath('../../data/processed/master/df_demo.csv'), sep=';', decimal=',')
+
+
 if __name__ == '__main__':
     args = parse_args()
     
     # load data
     df_PrufData = pd.read_csv(os.path.abspath(args.exam_data_ba), sep=';', engine = 'python', encoding = 'utf-8')
-    df_StudData = pd.read_csv(os.path.abspath(args.student_data), sep=';', engine = 'python', encoding = 'utf-8')
+    df_StudData = pd.read_csv(os.path.abspath(args.student_data_ba), sep=';', engine = 'python', encoding = 'utf-8')
     df_Master_Stud = pd.read_csv(os.path.abspath(args.next_master_study_ba), sep=';', engine = 'python', encoding = 'utf-8')
     df_stadt = pd.read_csv(os.path.abspath(args.city_names), sep=';', engine = 'python', encoding = 'windows-1252')
     df_Stud_struc = pd.read_csv(os.path.abspath(args.exam_regulation_ba), sep=';', engine = 'python', encoding = 'windows-1252')
     
-    #test = clean_exam(df_PrufData)
+    # progress and save
     concated_data = concate_all_data(clean_exam(df_PrufData), df_StudData)
     df_StudStart = stud_data(concated_data, 20212)
     df_next = getting_next_study(df_StudStart, df_Master_Stud)
     df_Studies, df_StudStart, df_next = delete_personal_data(concated_data, df_StudStart, df_next)
+    df_StudStart = add_percentile (df_StudStart)
     df_demo = demo_data(df_Studies, df_stadt)
     path_preparation = path_preparation(df_Studies)
     df_layers = get_exam_data(df_Studies, df_StudStart, df_Stud_struc)
     df_Path = path_final(path_preparation, df_layers, 20212)
     df_ECTS = show_ects(df_Path, df_StudStart)
+    save_data()
+
+
