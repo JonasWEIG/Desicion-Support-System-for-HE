@@ -2,6 +2,8 @@
 # exclude data from source control
 /data/
 
-# exclude data from source control by default
+# exclude reports from source control
 /reports/figures/
 
+# exclude models from source control
+/models/
