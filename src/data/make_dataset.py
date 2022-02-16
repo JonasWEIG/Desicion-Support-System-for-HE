@@ -8,134 +8,10 @@ import pandas as pd
 import numpy as np
 import os
 from utils import *
+import sys
+sys.path.append('../features')
+from build_features import add_probabilities
 
-def clean_exam(exam_data):
-    exam_data = exam_data.astype({'bonus': float})
-    # clean pnote
-    wrg_str = ['+  ', '-  ', 'NE ','RW ', 'VOU']
-    for strs in wrg_str:
-        exam_data.loc[exam_data.pnote == strs, 'pnote'] = np.nan
-    exam_data = exam_data.astype({'pnote': float})
-
-    # add module structure
-    exam_data['Modulebene_1'] = exam_data['pfad'].str.extract('\,\d{4},(\d{5})', expand = True)
-    exam_data['Modulebene_2'] = exam_data['pfad'].str.extract('(\d{5}),\d{5}\}$', expand = True)
-    exam_data['Bereich_1'] = exam_data['pfad'].str.extract('2000,\d?\d?\d?\,?(\d{4}),', expand = True)
-    exam_data['Bereich_2'] = exam_data['pfad'].str.extract('\,(\d{4}),\d{5}', expand = True)
-    exam_data['study_sp'] = exam_data['pfad'].str.extract('2000,(\d?\d?\d?)\,?\d{4},', expand = True)
-    exam_data['study_sp'] = pd.to_numeric(exam_data['study_sp'], errors = 'coerce').astype('float')
-    lays = ['Modulebene_1', 'Modulebene_2', 'Bereich_1', 'Bereich_2']
-    for empty in lays:
-        exam_data[empty] = exam_data[empty].fillna(0)
-    exam_data = exam_data.astype({'Modulebene_1': int,
-                                      'Modulebene_2': int,
-                                      'Bereich_1': int,
-                                      'Bereich_2': int})
-        
-    # add studytype
-    exam_data['stg'] = exam_data['pnr_zu'].str.extract('\d{2}\/(\d{3})', expand = True)
-    
-    # check if exam_data contains bachelor data
-    if exam_data.prftitel.str.contains('Bachelorarbeit').any():
-        
-        #correct wrong bonus
-        exam_data.loc[(exam_data.prftitel == 'Unternehmensplanspiel (Kurztest)') &
-                        (exam_data.bonus == 1100), 'bonus'] = 3
-                            
-        # add Bachelorarbeit
-        exam_data.loc[exam_data.prftitel == 'Bachelorarbeit', 'Modulebene_1'] = 1997
-        exam_data.loc[exam_data.prftitel == 'Bachelorarbeit', 'Modulebene_2'] = 1997
-        exam_data.loc[exam_data.prftitel == 'Bachelorarbeit', 'Bereich_1'] = 1997
-        exam_data.loc[exam_data.prftitel == 'Bachelorarbeit', 'Bereich_2'] = 1997
-        exam_data.loc[(exam_data.prftitel == 'Bachelorarbeit') & (exam_data.pstatus == 'BE'), 'bonus'] = 15 
-        
-        # add studytype
-        exam_data['stg'] = exam_data['pnr_zu'].str.extract('\d{2}\/(\d{3})', expand = True)
-    
-    # check if exam_data contains master data    
-    elif exam_data.prftitel.str.contains('Masterarbeit').any():    
-        # add Masterarbeit
-        exam_data.loc[exam_data.pnr == 1999, 'Modulebene_1'] = 1997
-        exam_data.loc[exam_data.pnr == 1999, 'Modulebene_2'] = 1997
-        exam_data.loc[exam_data.pnr == 1999, 'Bereich_1'] = 1997
-        exam_data.loc[exam_data.pnr == 1999, 'Bereich_2'] = 1997
-
-        # economics
-        exam_data.loc[(exam_data.pnr == 1999) & (exam_data.pstatus == 'BE') &
-                        ((exam_data.stg == '636') | (exam_data.stg == '673')), 'bonus'] = 30 
-
-    return exam_data
-
-def concate_all_data(exam_data, study_data):
-    study_data = study_data.sort_values(by=['mtknr', 'semester'], ascending = [True, True])
-    exam_data = exam_data.rename(columns = {'psem' : 'semester'})
-    exam_data = exam_data.sort_values(by=['mtknr', 'semester'], ascending = [True, True])
-    
-    # add matriculation numbers
-    i = 1
-    MNRs = pd.unique(study_data['mtknr']).tolist()
-    for MNR in MNRs:
-        study_data.loc[study_data.mtknr == MNR, 'MNR_neu'] = i
-        stgs = pd.unique(study_data.loc[study_data.mtknr == MNR, 'stg'].tolist())
-        j = 1
-        for stg in stgs:
-            study_data.loc[(study_data.mtknr == MNR) & (study_data.stg == stg), 'MNR_Zweit'] = i*10+j
-            j += 1  
-        i += 1   
-    exam_data = exam_data[(exam_data.Bereich_1 !=0) |(exam_data.prftitel == 'Gesamtkonto') ]
-    exam_data = exam_data.astype({'mtknr': int, 'stg': int} )
-    study_data = study_data.astype({'mtknr': int, 'stg': int} )
-    data_concenated = exam_data.merge(study_data, on=['mtknr', 'stg', 'semester'], how='outer')        
-    data_concenated = data_concenated.sort_values(by=['mtknr', 'semester'], ascending = [True, True]) 
-    data_concenated = data_concenated.reset_index(drop=True)
-    
-    # delete wrong HZB note
-    data_concenated.loc[data_concenated.hzbnote == 450, 'hzbnote'] = np.nan
-            
-    # comlete MNRs, fachsem and study from Semester after finishing study       
-    idex_ganz = data_concenated.index[data_concenated['MNR_neu'].isnull()].tolist()
-    for zeile in idex_ganz:
-        if (data_concenated.loc[zeile, 'mtknr'] == data_concenated.loc[zeile - 1, 'mtknr']) & (data_concenated.loc[zeile, 'stg'] == data_concenated.loc[zeile - 1, 'stg']):
-            data_concenated.loc[zeile, ['MNR_neu', 'MNR_Zweit', 'studiengang', 'stutyp', 'schwerpunkt_bei_abschluss', 'geschl', 
-                                   'gebdat', 'staat', 'hzbnote', 'hzb_erwerbsort', 'hzbart', 'hzbdatum', 'immadat', 
-                                   'erfolg']] = data_concenated.loc[zeile - 1, ['MNR_neu', 'MNR_Zweit', 'studiengang', 'stutyp', 
-                                                                            'schwerpunkt_bei_abschluss', 'geschl', 
-                                                                            'gebdat', 'staat', 'hzbnote', 'hzb_erwerbsort', 
-                                                                            'hzbart', 'hzbdatum', 'immadat', 'erfolg']]
-            if data_concenated.loc[zeile, 'semester'] > data_concenated.loc[zeile - 1, 'semester']:
-                data_concenated.loc[zeile, 'fachsem'] = data_concenated.loc[zeile - 1, 'fachsem'] + 1
-            else:
-                data_concenated.loc[zeile, 'fachsem'] = data_concenated.loc[zeile - 1, 'fachsem']
-    
-    idex_2 = sorted(data_concenated.index[data_concenated['MNR_neu'].isnull()].tolist(), reverse = True)
-    for zeile in idex_2:
-        if (data_concenated.loc[zeile, 'mtknr'] == data_concenated.loc[zeile + 1, 'mtknr']) & (data_concenated.loc[zeile, 'stg'] == data_concenated.loc[zeile + 1, 'stg']):
-            data_concenated.loc[zeile, ['MNR_neu', 'MNR_Zweit', 'studiengang', 'stutyp', 'schwerpunkt_bei_abschluss', 'geschl', 
-                                    'gebdat', 'staat', 'hzbnote', 'hzb_erwerbsort', 'hzbart', 'hzbdatum', 'immadat', 
-                                    'erfolg']] = data_concenated.loc[zeile + 1, ['MNR_neu', 'MNR_Zweit', 'studiengang', 'stutyp', 
-                                                                             'schwerpunkt_bei_abschluss', 'geschl', 
-                                                                             'gebdat', 'staat', 'hzbnote', 'hzb_erwerbsort', 
-                                                                             'hzbart', 'hzbdatum', 'immadat', 'erfolg']]
-            if data_concenated.loc[zeile, 'semester'] < data_concenated.loc[zeile + 1, 'semester']:
-                data_concenated.loc[zeile, 'fachsem'] = data_concenated.loc[zeile + 1, 'fachsem'] - 1
-            else:
-                data_concenated.loc[zeile, 'fachsem'] = data_concenated.loc[zeile + 1, 'fachsem']
-    
-    data_concenated = data_concenated.dropna(subset=['MNR_Zweit'])
-    
-    # delete personal columns        
-    data_concenated = data_concenated.drop(columns = ['idm_username','email', 'abschl_x', 'abschl_y', 'abschluss', 'exmgrund'])
-    
-    # add schwerpunkte Sozök
-    data_concenated['study_sp_ges'] = data_concenated.groupby('MNR_Zweit')['study_sp'].apply(lambda x: x.ffill().bfill())
-    data_concenated.loc[data_concenated.study_sp_ges.isna(), 'schwerpunkt_bei_abschluss'] = np.nan
-    data_concenated.loc[data_concenated.study_sp_ges == 612, 'schwerpunkt_bei_abschluss'] = 'International'
-    data_concenated.loc[data_concenated.study_sp_ges == 611, 'schwerpunkt_bei_abschluss'] = 'Verhalten'
-    
-    # correct exam grade
-    data_concenated.pnote = data_concenated.pnote/100
-    
-    return data_concenated
 
 def stud_data(data, akt_semester):
     # getting final grade Data
@@ -194,25 +70,33 @@ def getting_next_study(data, master_data):
     
     return df_next
 
-def getting_encrypting_dataframes(data):
-    
-    # create dataframes for every study programme
-    stgs = pd.unique(data.studiengang.tolist())
-    dfs = {}
-    for stg in stgs:
-        dfs[stg] = pd.DataFrame()
-        dfs[stg] = data.loc[data.studiengang == stg, ['mtknr', 'MNR_Zweit']]
-        dfs[stg] = dfs[stg].drop_duplicates(subset = ['MNR_Zweit'], keep = 'first').reset_index(drop=True)
-        dfs[stg].to_csv(os.path.abspath('..\\WiSe2122\\csv\\df_' + stg + '.csv'), sep=';', decimal=',')
+def getting_last_study(data, bachelordata_stud, bachelordata_pruf):
 
-def delete_personal_data(data, StudStart, Next):
+    # create MNR_neu column and MNR_Zweit & merge
+    df_StudData_ba = bachelordata_stud.sort_values(by=['mtknr', 'semester'], ascending = [True, True])
+    df_PrufData_ba = bachelordata_pruf.rename(columns = {'psem' : 'semester'})
+    df_PrufData_ba = df_PrufData_ba.sort_values(by=['mtknr', 'semester'], ascending = [True, True]) 
+    df_PrufData_ba = df_PrufData_ba[df_PrufData_ba.prftitel == 'Gesamtkonto']
+    df_PrufData_ba = df_PrufData_ba.astype({'mtknr': int, 'stg': int} )
+    df_StudData_ba = df_StudData_ba.astype({'mtknr': int, 'stg': int} )
+    df_Studies_ba = df_PrufData_ba.merge(df_StudData_ba, on=['mtknr', 'stg', 'semester'], how='outer')        
+    df_Studies_ba = df_Studies_ba.sort_values(by=['mtknr', 'semester'], ascending = [True, True]) 
+    df_Studies_ba = df_Studies_ba.reset_index(drop=True)
     
-    # delete old MNR        
-    df_Studies = data.drop(columns = ['mtknr'])
-    df_StudStart = StudStart.drop(columns = ['mtknr'])
-    df_Next = Next.drop(columns = ['mtknr'])
+    df_BA_Stud = df_Studies_ba.loc[df_Studies_ba.prftitel == 'Gesamtkonto', ['mtknr', 'studiengang', 'pstatus', 'pnote', 'bonus', 'semester', 'fachsem']]
     
-    return df_Studies, df_StudStart, df_Next
+    df_BA_Stud = df_BA_Stud.rename(columns = {'studiengang': 'studiengang_bachelor'})
+    #df_BA_Stud = df_BA_Stud[['mtknr', 'studiengang_bachelor']].drop_duplicates(subset = ['mtknr', 'studiengang_bachelor'], keep = 'first')
+    # dropduplicates
+    df_last = df_StudStart[['mtknr', 'MNR_Zweit', 'bestanden', 'Endnote', 'studiengang']]
+    df_last = df_last.merge(df_BA_Stud, on = ['mtknr'], how = 'left')
+    df_last.studiengang_bachelor = 'Bachelor_' + df_last.studiengang_bachelor
+    df_last['next_study'] = df_last.studiengang_bachelor
+    df_last = df_last.drop(columns = ['studiengang_bachelor'])
+    df_last.loc[df_last.next_study.isna(), 'next_study'] = 'extern'
+    df_last = df_last.rename(columns = {'pnote': 'Note_ba', 'pstatus': 'Status_ba'})
+    
+    return df_last
 
 def demo_data(data, stadt):
 
@@ -271,61 +155,9 @@ def demo_data(data, stadt):
     
     return df_demo
 
-def path_preparation(data):
-    
-    # calculate angemeldet, bestanden & ECTS per semester
-    df_Path = data.loc[data.Modulebene_1 != 0]
-    df_Path1 = df_Path.groupby(['MNR_Zweit', 'fachsem'])[['bonus']].sum().reset_index()
-    df_Path2 = df_Path.groupby(['MNR_Zweit', 'fachsem'])[['bonus']].count().reset_index()
-    df_Path2 = df_Path2.rename(columns = {'bonus' : 'angemeldet'})
-    df_Path3 = df_Path.loc[df_Path.pstatus == 'BE']
-    df_Path3 = df_Path3.groupby(['MNR_Zweit', 'fachsem'])[['bonus']].count().reset_index()
-    df_Path3 = df_Path3.rename(columns = {'bonus' : 'bestanden'})
-    
-    # select needed rows
-    df_Path = data.drop_duplicates(subset = ['MNR_Zweit', 'fachsem'])
-    
-    # calculate age
-    df_Path['semester_date'] = df_Path['semester']
-    df_Path.semester = df_Path.semester.astype(str)
-    df_Path.loc[df_Path.semester.str.slice(4,) == '1','period'] = '4'
-    df_Path.loc[df_Path.semester.str.slice(4,) == '2','period'] = '10'
-    df_Path['semester'] = df_Path['semester'].str.slice(0,4)   
-    df_Path['semester'] =pd.to_datetime(df_Path['semester'].astype(str) + df_Path['period'], format='%Y%m')
-    df_Path['Alter'] = df_Path.semester - pd.to_datetime(df_Path.gebdat, errors = 'coerce')
-    df_Path['Alter'] = df_Path['Alter'].dt.days/364
-    df_Path.Alter = df_Path.Alter.round().astype('Int64')
-    
-    # select needed columns
-    df_Path = df_Path[['MNR_Zweit', 'semester_date', 'fachsem', 'Alter']]
-    
-    # merge dataframes
-    df_Path = df_Path.merge(df_Path1, on=['MNR_Zweit', 'fachsem'], how='left')
-    df_Path = df_Path.merge(df_Path2, on=['MNR_Zweit', 'fachsem'], how='left')
-    df_Path = df_Path.merge(df_Path3, on=['MNR_Zweit', 'fachsem'], how='left')
-    df_Path[['bestanden', 'bonus', 'angemeldet']] = df_Path[['bestanden', 'bonus', 'angemeldet']].fillna(0)
-    
-    df_Path = df_Path.sort_values(by = ['MNR_Zweit', 'fachsem'])
-    df_Path = df_Path.reset_index(drop = True)
-    
-    # add Status
-    df_Path.loc[:,'Status'] = 'M'
-    df_Path.loc[0,'Status'] = 'S'
-    df_Path.loc[df_Path.drop_duplicates(subset = ['MNR_Zweit'], keep = 'last').index, 'Status'] = 'E'
-    df_Path.loc[df_Path.drop_duplicates(subset = ['MNR_Zweit'], keep = 'first').index, 'Status'] = 'S'
-    df_Path['Status_EN'] = df_Path['Status']
-    df_Path.loc[df_Path.drop_duplicates(subset = ['MNR_Zweit'], keep = 'last').index, 'Status_EN'] = 'E'
 
-    return df_Path
 
-def add_term(data, PO, Studiengang, Bereich, Zielmodul, Plansem):
-    data.loc[(data.Bezeichnung.isna()) & 
-              (data.Bereich_1 == Bereich) &
-              (data.studiengang == Studiengang) &
-              (data.po_version == PO), ['Bezeichnung', 'Plan_sem']] = Zielmodul, Plansem
-    return data
-
-def get_exam_data(data, StudStart, structure):
+def get_exam_data(data, StudStart, structure, typ='bachelor'):
     
     df_Exam = data.loc[data.Modulebene_1 != 0]
     df_Exam = df_Exam[['MNR_Zweit', 'fachsem', 'semester', 'pstatus', 'pnote', 'bonus', 'pversuch', 'pnr', 'prftitel', 'Modulebene_1', 'Modulebene_2', 'modultitel', 'Bereich_1', 'Bereich_2', 'study_sp']]
@@ -428,17 +260,26 @@ def get_exam_data(data, StudStart, structure):
     df_layers2 = df_layers1.merge(df_Modulebene1, on =['MNR_Zweit', 'Modulebene_1', 'pversuch'], how='outer')
     df_layers3 = df_layers2.merge(df_Bereich1, on =['MNR_Zweit', 'Bereich_1'], how='outer')
     df_layers4 = df_layers3.merge(df_Bereich2, on =['MNR_Zweit', 'Bereich_2'], how='outer')
-    df_layers4.loc[df_layers4.Bereich_1 == 1100, 'GOP_bestanden'] = 'EN'
-    df_layers4.loc[(df_layers4.Bereich_1 == 1100) & (df_layers4.bestanden == 'PV') & (df_layers4.bonus_b1 < 60), 'GOP_bestanden'] = 'PV'
-    df_layers4.loc[(df_layers4.Bereich_1 == 1100) & (df_layers4.bonus_b1 >= 60), 'GOP_bestanden'] = 'BE'
-    df_layers4.loc[df_layers4.Bereich_1 == 1000, 'GOP_bestanden'] = 'EN'
-    df_layers4.loc[(df_layers4.Bereich_1 == 1000) & (df_layers4.bestanden == 'PV') & (df_layers4.bonus_b1 < 30), 'GOP_bestanden'] = 'PV'
-    df_layers4.loc[(df_layers4.Bereich_1 == 1000) & (df_layers4.bonus_b1 >= 30), 'GOP_bestanden'] = 'BE'
-    df_layers4[['note_b1', 'note_b2', 'note_m1', 'note_m2']] = df_layers4[['note_b1', 'note_b2', 'note_m1', 'note_m2']].round(1)
+    if bachelor:
+        df_layers4.loc[df_layers4.Bereich_1 == 1100, 'GOP_bestanden'] = 'EN'
+        df_layers4.loc[(df_layers4.Bereich_1 == 1100) & (df_layers4.bestanden == 'PV') & (df_layers4.bonus_b1 < 60), 'GOP_bestanden'] = 'PV'
+        df_layers4.loc[(df_layers4.Bereich_1 == 1100) & (df_layers4.bonus_b1 >= 60), 'GOP_bestanden'] = 'BE'
+        df_layers4.loc[df_layers4.Bereich_1 == 1000, 'GOP_bestanden'] = 'EN'
+        df_layers4.loc[(df_layers4.Bereich_1 == 1000) & (df_layers4.bestanden == 'PV') & (df_layers4.bonus_b1 < 30), 'GOP_bestanden'] = 'PV'
+        df_layers4.loc[(df_layers4.Bereich_1 == 1000) & (df_layers4.bonus_b1 >= 30), 'GOP_bestanden'] = 'BE'
+        df_layers4[['note_b1', 'note_b2', 'note_m1', 'note_m2']] = df_layers4[['note_b1', 'note_b2', 'note_m1', 'note_m2']].round(1)
+    else:
+        df_layers4[['note_b1', 'note_b2']] = df_layers4[['note_b1', 'note_b2']].round(2)
+        df_layers4.loc[(df_layers4.pstatus == 'BE') & (df_layers4.pnr == 1999) & (df_layers4.bonus == 20),['bonus_m2', 'bonus_m1', 'bonus_b1', 'bonus_b2']] = 20
+        df_layers4.loc[(df_layers4.pstatus == 'BE') & (df_layers4.pnr == 1999) & (df_layers4.bonus == 20),['not_passed_m2']] = 'BE'
+        df_layers4.loc[(df_layers4.pstatus == 'BE') & (df_layers4.pnr == 1999) & (df_layers4.bonus == 20),['max_sem_m2', 'max_sem_m1', 'max_sem_b1', 'max_sem_b2']] = df_layers4.fachsem
+        df_layers4.loc[(df_layers4.pstatus == 'BE') & (df_layers4.pnr == 1999) & (df_layers4.bonus == 20),['note_m2', 'note_m1', 'note_b1', 'note_b2']] = df_layers4.pnote
+
+    
     
     ############### Add study path analysis #################
-    
-    structure['SP'] = pd.to_numeric(structure['SP'], errors = 'coerce').astype('Int64')
+    if bachelor:
+        structure['SP'] = pd.to_numeric(structure['SP'], errors = 'coerce').astype('Int64')
     df_layers = df_layers4.merge(StudStart[['MNR_Zweit', 'Startsemester', 'studiengang' ]], on = 'MNR_Zweit', how  = 'left')
     
     studiengangs = pd.unique(structure.Studiengang).tolist()
@@ -464,17 +305,35 @@ def get_exam_data(data, StudStart, structure):
                           (df_layers.modultitel == structure.iloc[i,5])), 
                                   ['Mod', 'Bezeichnung', 'Plan_sem' ]] = structure.iloc[i,4], structure.iloc[i,5], structure.iloc[i,6]
     
+    if typ == bachelor:
+        add_term(df_layers, 20132, 'International Business Studies', 1100, 'Sprachen 1.1', 1)
+        add_term(df_layers, 20202, 'International Business Studies', 1100, 'Foreign languages 1.1', 1)
+        add_term(df_layers, 20132, 'Sozialökonomik', 1100, 'Sprachen', 2)
+        add_term(df_layers, 20152, 'Sozialökonomik', 1100, 'Sprachen', 2)
+        add_term(df_layers, 20162, 'Sozialökonomik', 1100, 'Sprachen', 2)
+        add_term(df_layers, 20172, 'Sozialökonomik', 1100, 'Sprachen', 2)
+        add_term(df_layers, 20132, 'Sozialökonomik', 1920, 'Sprachen 2.2', 2)
+        add_term(df_layers, 20132, 'Wirtschaftswissenschaften', 1100, 'Sprachen', 2)
+        
+        df_layers.loc[df_layers['Bezeichnung'].notnull(),'final_verlauf'] = df_layers.Plan_sem.astype('Int64').astype(str) + '_' + df_layers.Bezeichnung.astype(str)
+    else: 
+        df_layers['final_verlauf'] = df_layers.Plan_sem.astype('Int64').astype(str) + '_' + df_layers.Bezeichnung.astype(str)
+        df_layers.loc[(df_layers.final_verlauf == 'nan_nan') & (df_layers.Bereich_1 == 1700), 'final_verlauf'] = '2_' + df_layers.modultitel
+        df_layers.loc[(df_layers.Bezeichnung.isna()) & (df_layers.Bereich_1 == 1500) & 
+                      ((df_layers.studiengang == 'Economics') | (df_layers.studiengang == 'Gesundheitsmanagement und -ökonomie')), 'final_verlauf'] = '2_' + df_layers.modultitel
+        df_layers.loc[(df_layers.Bezeichnung.isna()) & (df_layers.Bereich_1 == 1700) & (df_layers.Bereich_2 == 1700) & 
+                      (df_layers.studiengang == 'Arbeitsmarkt und Personal'), 'final_verlauf'] = '1_' + df_layers.modultitel     
+        df_layers.loc[(df_layers.Bezeichnung.isna()) & (df_layers.Bereich_1 == 1700) & (df_layers.Bereich_2 == 1700) & 
+                      (df_layers.studiengang == 'Finance, Auditing, Controlling, Taxation (FACT)'), 'final_verlauf'] = '1_' + df_layers.modultitel 
+        df_layers.loc[(df_layers.Bezeichnung.isna()) & (df_layers.Bereich_1 == 1700) & 
+                      (df_layers.studiengang == 'International Business Studies'), 'final_verlauf'] = '1_' + df_layers.modultitel 
+        df_layers.loc[(df_layers.Bezeichnung.isna()) & (df_layers.Bereich_1.notna()) & 
+                      (df_layers.studiengang == 'International Information Systems (IIS)'), 'final_verlauf'] = '1_' + df_layers.modultitel
+        df_layers.loc[(df_layers.Bezeichnung.isna()) & (df_layers.Bereich_1 == 1800) & (df_layers.Bereich_2 == 1800) & 
+                      (df_layers.studiengang == 'Management'), 'final_verlauf'] = '1_' + df_layers.modultitel
+        df_layers.loc[(df_layers.Bezeichnung.isna()) & (df_layers.Bereich_1 == 1700) & (df_layers.Bereich_2 == 1700) & 
+                      (df_layers.studiengang == 'Marketing'), 'final_verlauf'] = '1_' + df_layers.modultitel
     
-    add_term(df_layers, 20132, 'International Business Studies', 1100, 'Sprachen 1.1', 1)
-    add_term(df_layers, 20202, 'International Business Studies', 1100, 'Foreign languages 1.1', 1)
-    add_term(df_layers, 20132, 'Sozialökonomik', 1100, 'Sprachen', 2)
-    add_term(df_layers, 20152, 'Sozialökonomik', 1100, 'Sprachen', 2)
-    add_term(df_layers, 20162, 'Sozialökonomik', 1100, 'Sprachen', 2)
-    add_term(df_layers, 20172, 'Sozialökonomik', 1100, 'Sprachen', 2)
-    add_term(df_layers, 20132, 'Sozialökonomik', 1920, 'Sprachen 2.2', 2)
-    add_term(df_layers, 20132, 'Wirtschaftswissenschaften', 1100, 'Sprachen', 2)
-    
-    df_layers.loc[df_layers['Bezeichnung'].notnull(),'final_verlauf'] = df_layers.Plan_sem.astype('Int64').astype(str) + '_' + df_layers.Bezeichnung.astype(str)
     
     # add average grade of exam per semester
     df_exam_passed = df_layers.loc[df_layers.pnote <= 4.0]
@@ -508,7 +367,7 @@ def path_final(path, layers, akt_semester):
     
     return df_Path
 
-def show_ects(path, StudStart):
+def show_ects(path, StudStart, typ='bachelor'):
     
     Semesters = [14,13,12,11,10,9,8,7,6,5,4,3,2,1,0]
     #Semesters_2 = [14,13,12,11,10,9,8,7,6,5,4,3,2]
@@ -538,26 +397,44 @@ def show_ects(path, StudStart):
     
     for fs in range(2,15):
         df_ECTS['Sem_ects_sum_' + str(fs)] = df_ECTS['Sem_ects_sum_' + str(fs)] + df_ECTS['Sem_ects_sum_' + str(fs-1)]    
+   
     
-    for fs in range(2,15): 
-        df_ECTS.loc[(df_ECTS.bestanden == 'bestanden') &
-                    (df_ECTS['Sem_ects_sum_' + str(fs)] == 0) &
-                    (df_ECTS['Sem_ects_sum_' + str(fs-1)] != 0), 'Sem_ects_sum_' + str(fs-1)] = 180  
-    
+   
+    if typ == 'bachelor':
         
-    for fs in range(1,15):  
+        for fs in range(2,15): 
+            df_ECTS.loc[(df_ECTS.bestanden == 'bestanden') &
+                        (df_ECTS['Sem_ects_sum_' + str(fs)] == 0) &
+                        (df_ECTS['Sem_ects_sum_' + str(fs-1)] != 0), 'Sem_ects_sum_' + str(fs-1)] = 180  
         
-        if fs <= 5:
-            df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] < fs*10), 'Sem_ects_agg_' + str(fs)] = 'weniger als ' + str(fs*10) + ' ECTS'
-            df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= fs*10), 'Sem_ects_agg_' + str(fs)] = 'mindestens ' + str(fs*10) + ' ECTS'
-            df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= fs*20), 'Sem_ects_agg_' + str(fs)] = 'mindestens ' + str(fs*20) + ' ECTS'
-            df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= fs*30), 'Sem_ects_agg_' + str(fs)] = 'mindestens ' + str(fs*30) + ' ECTS'
-        else:
-            df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] < 60), 'Sem_ects_agg_' + str(fs)] = 'weniger als 60 ECTS'
-            df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= 60), 'Sem_ects_agg_' + str(fs)] = 'mindestens 60 ECTS'
-            df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= 120), 'Sem_ects_agg_' + str(fs)] = 'mindestens 120 ECTS' 
-            df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= 180), 'Sem_ects_agg_' + str(fs)] = 'bestanden'
-    
+            
+        for fs in range(1,15):  
+            
+            if fs <= 5:
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] < fs*10), 'Sem_ects_agg_' + str(fs)] = 'weniger als ' + str(fs*10) + ' ECTS'
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= fs*10), 'Sem_ects_agg_' + str(fs)] = 'mindestens ' + str(fs*10) + ' ECTS'
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= fs*20), 'Sem_ects_agg_' + str(fs)] = 'mindestens ' + str(fs*20) + ' ECTS'
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= fs*30), 'Sem_ects_agg_' + str(fs)] = 'mindestens ' + str(fs*30) + ' ECTS'
+            else:
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] < 60), 'Sem_ects_agg_' + str(fs)] = 'weniger als 60 ECTS'
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= 60), 'Sem_ects_agg_' + str(fs)] = 'mindestens 60 ECTS'
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= 120), 'Sem_ects_agg_' + str(fs)] = 'mindestens 120 ECTS' 
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= 180), 'Sem_ects_agg_' + str(fs)] = 'bestanden'
+    else:
+        for fs in range(1,15):  
+            
+            if fs <= 5:
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] < fs*10), 'Sem_ects_agg_' + str(fs)] = 'weniger als ' + str(fs*10) + 'ECTS'
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= fs*10), 'Sem_ects_agg_' + str(fs)] = 'mindestens ' + str(fs*10) + 'ECTS'
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= fs*20), 'Sem_ects_agg_' + str(fs)] = 'mindestens ' + str(fs*20) + 'ECTS'
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= fs*30), 'Sem_ects_agg_' + str(fs)] = 'mindestens ' + str(fs*30) + 'ECTS'
+            else:
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] < 40), 'Sem_ects_agg_' + str(fs)] = 'weniger als 40 ECTS'
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= 40), 'Sem_ects_agg_' + str(fs)] = 'mindestens 40 ECTS'
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= 80), 'Sem_ects_agg_' + str(fs)] = 'mindestens 80 ECTS' 
+                df_ECTS.loc[(df_ECTS['Sem_ects_sum_' + str(fs)].notna()) & (df_ECTS['Sem_ects_sum_' + str(fs)] >= 120), 'Sem_ects_agg_' + str(fs)] = 'bestanden'
+
+
     # add quantitative status_final
     df_ECTS['bestanden_num'] = 600
     df_ECTS.loc[df_ECTS.bestanden == 'EN', 'bestanden_num'] = 700
@@ -605,6 +482,10 @@ def add_percentile (df_StudStart):
                 
 
     df_StudStart = df_StudStart.merge(df_final[['MNR_Zweit', 'percentile']], on= 'MNR_Zweit', how = 'left')
+    
+    # save because result is needed for prepare_final_files
+    df_StudStart.to_pickle(os.path.abspath('../../data/interim/bachelor/df_studstart_without_prediction.pkl'))
+    
     
     return df_StudStart
 
@@ -663,7 +544,10 @@ if __name__ == '__main__':
     # progress and save
     concated_data = concate_all_data(clean_exam(df_PrufData), df_StudData)
     df_StudStart = stud_data(concated_data, 20212)
-    df_next = getting_next_study(df_StudStart, df_Master_Stud)
+    if x:
+        df_next = getting_next_study(df_StudStart, df_Master_Stud)
+    else:
+        df_next = getting_next_study(df_StudStart, df_Master_Stud)
     df_Studies, df_StudStart, df_next = delete_personal_data(concated_data, df_StudStart, df_next)
     df_StudStart = add_percentile (df_StudStart)
     df_demo = demo_data(df_Studies, df_stadt)
@@ -671,6 +555,10 @@ if __name__ == '__main__':
     df_layers = get_exam_data(df_Studies, df_StudStart, df_Stud_struc)
     df_Path = path_final(path_preparation, df_layers, 20212)
     df_ECTS = show_ects(df_Path, df_StudStart)
+
+    for semester in range (1,6):
+        df_StudStart = add_probabilities(semester, df_StudStart, df_Path, df_demo)
+    
     save_data()
 
 
