@@ -7,3 +7,5 @@
 
 # exclude models from source control
 /models/
+
+git 
