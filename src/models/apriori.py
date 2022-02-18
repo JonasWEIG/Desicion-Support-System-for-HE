@@ -11,21 +11,26 @@ from mlxtend.frequent_patterns import apriori, association_rules
 import os
 
 
-def add_association_rules(df_layers, df_StudStart, min_support = 0.2):  
+def add_association_rules(df_layers, df_StudStart, min_support = 0.02, typ = 'bachelor'):  
 
     df_apri = pd.merge(df_layers, df_StudStart[['MNR_Zweit', 'ECTS_final']], how= 'left', on = 'MNR_Zweit')
     #df_apri = pd.merge(df_apri, df_clusters[['MNR_Zweit', 'y_predicted']], how = 'left', on = 'MNR_Zweit')
     
-    df_apri = df_apri[df_apri.ECTS_final != 0]
-    
+    df_apri = df_apri[(df_apri.ECTS_final != 0) & (df_apri.modultitel != 'Gesamtkonto') & (df_apri.Modulebene_2 != 55481) &
+                      (df_apri.Bereich_1 != 1700) & ((df_apri.Bereich_1 != 1500) | (df_apri.studiengang == 'Sozialökonomik')) & (df_apri.Bereich_1 != 1997)]
+    #d = df_apri[df_apri.studiengang == 'Sozialökonomik']
     studiengangs = pd.unique(df_apri.studiengang).tolist()
-    studiengang = 'Wirtschaftswissenschaften'
+    #studiengang = 'Wirtschaftswissenschaften'
     df_final = pd.DataFrame()
     for studiengang in studiengangs:
         # select modules with mnote > 3.4
-        df = df_apri.loc[(df_apri.note_m2 > 3.2) & (df_apri.studiengang == studiengang) &
-                         (df_apri.Startsemester > 20131),]
-        min_support = 0.02
+        if typ == 'bachelor':
+            df = df_apri.loc[(df_apri.note_m2 > 3.2) & (df_apri.studiengang == studiengang) & 
+                             (df_apri.Startsemester > 20131),]
+        else:
+            df = df_apri.loc[(df_apri.note_m2 < 2.1) & (df_apri.studiengang == studiengang) & 
+                             (df_apri.Startsemester > 20131),]
+        #min_support = 0.02
         # one hot encoding modultitel
         df = pd.concat([df['MNR_Zweit'], pd.get_dummies(df['modultitel'])], axis = 1)
         
@@ -62,8 +67,10 @@ def add_association_rules(df_layers, df_StudStart, min_support = 0.2):
         df = df[['MNR_Zweit', 'modultitel', 'problem']]
         df = df.merge(df_ar[['problem', 'modultitel', 'lift', 'confidence']], on = ['problem', 'modultitel'], how = 'left')  
         df_final = pd.concat([df, df_final], ignore_index = True, sort = True)
-        df_ar.to_csv(os.path.abspath('../../data/processed/apriori_data/df_apriori_ba_' + studiengang + '.csv'), sep=';', decimal=',', encoding = 'utf-8')
-     
+        if typ == 'bachelor':
+            df_ar.to_csv(os.path.abspath('../../data/processed/apriori_data/df_apriori_ba_' + studiengang + '.csv'), sep=';', decimal=',', encoding = 'utf-8')
+        else:
+            df_ar.to_csv(os.path.abspath('../../data/processed/apriori_data/df_apriori_ma_' + studiengang + '.csv'), sep=';', decimal=',', encoding = 'utf-8')
     return df_final
 
 if __name__ == '__main__':

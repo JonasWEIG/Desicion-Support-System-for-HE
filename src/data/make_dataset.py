@@ -88,7 +88,7 @@ def getting_last_study(data, bachelordata_stud, bachelordata_pruf):
     df_BA_Stud = df_BA_Stud.rename(columns = {'studiengang': 'studiengang_bachelor'})
     #df_BA_Stud = df_BA_Stud[['mtknr', 'studiengang_bachelor']].drop_duplicates(subset = ['mtknr', 'studiengang_bachelor'], keep = 'first')
     # dropduplicates
-    df_last = df_StudStart[['mtknr', 'MNR_Zweit', 'bestanden', 'Endnote', 'studiengang']]
+    df_last = data[['mtknr', 'MNR_Zweit', 'bestanden', 'Endnote', 'studiengang']]
     df_last = df_last.merge(df_BA_Stud, on = ['mtknr'], how = 'left')
     df_last.studiengang_bachelor = 'Bachelor_' + df_last.studiengang_bachelor
     df_last['next_study'] = df_last.studiengang_bachelor
@@ -260,7 +260,7 @@ def get_exam_data(data, StudStart, structure, typ='bachelor'):
     df_layers2 = df_layers1.merge(df_Modulebene1, on =['MNR_Zweit', 'Modulebene_1', 'pversuch'], how='outer')
     df_layers3 = df_layers2.merge(df_Bereich1, on =['MNR_Zweit', 'Bereich_1'], how='outer')
     df_layers4 = df_layers3.merge(df_Bereich2, on =['MNR_Zweit', 'Bereich_2'], how='outer')
-    if bachelor:
+    if typ == 'bachelor':
         df_layers4.loc[df_layers4.Bereich_1 == 1100, 'GOP_bestanden'] = 'EN'
         df_layers4.loc[(df_layers4.Bereich_1 == 1100) & (df_layers4.bestanden == 'PV') & (df_layers4.bonus_b1 < 60), 'GOP_bestanden'] = 'PV'
         df_layers4.loc[(df_layers4.Bereich_1 == 1100) & (df_layers4.bonus_b1 >= 60), 'GOP_bestanden'] = 'BE'
@@ -278,8 +278,8 @@ def get_exam_data(data, StudStart, structure, typ='bachelor'):
     
     
     ############### Add study path analysis #################
-    if bachelor:
-        structure['SP'] = pd.to_numeric(structure['SP'], errors = 'coerce').astype('Int64')
+    #if ba
+    structure['SP'] = pd.to_numeric(structure['SP'], errors = 'coerce').astype('Int64')
     df_layers = df_layers4.merge(StudStart[['MNR_Zweit', 'Startsemester', 'studiengang' ]], on = 'MNR_Zweit', how  = 'left')
     
     studiengangs = pd.unique(structure.Studiengang).tolist()
@@ -305,7 +305,7 @@ def get_exam_data(data, StudStart, structure, typ='bachelor'):
                           (df_layers.modultitel == structure.iloc[i,5])), 
                                   ['Mod', 'Bezeichnung', 'Plan_sem' ]] = structure.iloc[i,4], structure.iloc[i,5], structure.iloc[i,6]
     
-    if typ == bachelor:
+    if typ == 'bachelor':
         add_term(df_layers, 20132, 'International Business Studies', 1100, 'Sprachen 1.1', 1)
         add_term(df_layers, 20202, 'International Business Studies', 1100, 'Foreign languages 1.1', 1)
         add_term(df_layers, 20132, 'Sozialökonomik', 1100, 'Sprachen', 2)
@@ -484,13 +484,20 @@ def add_percentile (df_StudStart):
     df_StudStart = df_StudStart.merge(df_final[['MNR_Zweit', 'percentile']], on= 'MNR_Zweit', how = 'left')
     
     # save because result is needed for prepare_final_files
-    df_StudStart.to_pickle(os.path.abspath('../../data/interim/bachelor/df_studstart_without_prediction.pkl'))
+    
+    if df_StudStart.studiengang.str.contains('Wirtschaftswissenschaften').any():
+        df_StudStart.to_pickle(os.path.abspath('../../data/interim/bachelor/df_studstart_without_prediction.pkl'))
+        
+    else:
+        df_StudStart.to_pickle(os.path.abspath('../../data/interim/master/df_studstart_without_prediction.pkl'))
+        
     
     
     return df_StudStart
 
 
-def save_data(typ='bachelor'):
+def save_data(typ='bachelor', df_Studies = df_Studies ,df_StudStart = df_StudStart, df_next = df_next,
+              df_Path = df_Path, df_layers = df_layers, df_ECTS = df_ECTS, df_demo = df_demo):
     if typ == 'bachelor':
         # save as pickle
 
@@ -544,7 +551,7 @@ if __name__ == '__main__':
     # progress and save
     concated_data = concate_all_data(clean_exam(df_PrufData), df_StudData)
     df_StudStart = stud_data(concated_data, 20212)
-    if x:
+    if df_StudStart.studiengang.str.contains('Wirtschaftswissenschaften').any():
         df_next = getting_next_study(df_StudStart, df_Master_Stud)
     else:
         df_next = getting_next_study(df_StudStart, df_Master_Stud)

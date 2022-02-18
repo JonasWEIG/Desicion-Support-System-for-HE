@@ -38,11 +38,18 @@ def drop_columns(df):
                    'Status', 'Status_EN', 'Durchschnittsnote', 'nicht_bestanden', 'Durchschnittsnote_be', 'percentile'], axis=1)
     return df
 
-def prepare_final_files(fachsem, df_studstart, df_path, df_demo):
-    df_studstart_old = pd.read_pickle(os.path.abspath('../../data/interim/bachelor/df_studstart_without_prediction.pkl'))
-    #df_path = pd.read_pickle(os.path.abspath('../../data/interim/bachelor/df_path.pkl'))
-    #df_demo = pd.read_pickle(os.path.abspath('../../data/interim/bachelor/df_demo.pkl'))
-    #fachsem = 2
+def prepare_final_files(fachsem, df_studstart, df_path, df_demo, typ='bachelor'):
+    
+    if typ == 'bachelor':
+        df_studstart_old = pd.read_pickle(os.path.abspath('../../data/interim/bachelor/df_studstart_without_prediction.pkl'))
+        #df_path = pd.read_pickle(os.path.abspath('../../data/interim/bachelor/df_path.pkl'))
+        #df_demo = pd.read_pickle(os.path.abspath('../../data/interim/bachelor/df_demo.pkl'))
+        #fachsem = 2
+    else:
+        df_studstart_old = pd.read_pickle(os.path.abspath('../../data/interim/master/df_studstart_without_prediction.pkl'))
+        #df_path = pd.read_pickle(os.path.abspath('../../data/interim/bachelor/df_path.pkl'))
+        #df_demo = pd.read_pickle(os.path.abspath('../../data/interim/bachelor/df_demo.pkl'))
+        #fachsem = 2
     
 
     for fs in range(1,fachsem+1):
@@ -105,14 +112,16 @@ def prepare_final_files(fachsem, df_studstart, df_path, df_demo):
             df_PV_2 = drop_columns(df_PV_2)
             Final_2 = drop_columns(Final_2)
             Final_2 = Final_2.drop(Final_2.columns[1:6], axis = 1)
+            if typ != 'bachelor':
+                df_PV_2 = df_PV_2.drop(df_PV_2.columns[1:6], axis = 1)
             Final = pd.merge(Final, Final_2, how = 'inner', on= 'MNR_Zweit')
             df_PV = pd.merge(df_PV, df_PV_2, how = 'inner', on= 'MNR_Zweit')
     #Final.to_pickle(os.path.abspath('../../data/interim/bachelor/df_Final.pkl'))
     return df_PV, Final
 
-def add_probabilities(fachsem, df_studstart, df_path, df_demo):
+def add_probabilities(fachsem, df_studstart, df_path, df_demo, typ = 'bachelor'):
     
-    df_PV, Final = prepare_final_files(fachsem, df_studstart, df_path, df_demo)
+    df_PV, Final = prepare_final_files(fachsem, df_studstart, df_path, df_demo, typ)
     #### train
     x_train, x_test, y_train, y_test = train_test_split(Final.iloc[:,3:-1], Final.iloc[:,-1], test_size = 0.25, random_state = 0)
 

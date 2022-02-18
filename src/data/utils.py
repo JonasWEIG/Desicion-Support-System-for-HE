@@ -20,10 +20,22 @@ def parse_args():
                     help='path to  bachelor exam data')
 
     parser.add_argument('--next_master_study_ba', type=str, default='../../data/raw/20102021_WISO-Studierendendaten_3_MA_20212.csv',
-                    help='path to  master student data for identifiing next study')    
+                    help='path to master student data for identifiing next study')    
     
     parser.add_argument('--exam_regulation_ba', type=str, default='../../data/external/po_bachelor_sose21.csv',
-                    help='obligatory modules')    
+                    help='obligatory modules bachelor')    
+    
+    parser.add_argument('--student_data_ma', type=str, default='../../data/raw/20102021_WISO-Studierendendaten_4_MA_20212.csv',
+                    help='path to master student data')
+
+    parser.add_argument('--exam_data_ma', type=str, default='../../data/raw/20102021_WISO-Leistungsdaten_2_MA_20212.csv',
+                    help='path to  master exam data')
+
+    parser.add_argument('--last_bachelor_study_ma', type=str, default='../../data/raw/20102021_WISO-Studierendendaten_3_BA_20212.csv',
+                    help='path to  bachelor student data for identifiing last study')    
+    
+    parser.add_argument('--exam_regulation_ma', type=str, default='../../data/external/po_master_sose21.csv',
+                    help='obligatory modules master')    
     
     parser.add_argument('--city_names', type=str, default='../../data/external/stadtnamen_by.csv',
                     help='city names for classifying HZB type')    
@@ -37,6 +49,7 @@ def parse_args():
 
 
 def clean_exam(exam_data):
+    #exam_data = df_PrufData
     exam_data = exam_data.astype({'bonus': float})
     # clean pnote
     wrg_str = ['+  ', '-  ', 'NE ','RW ', 'VOU']
@@ -95,6 +108,7 @@ def clean_exam(exam_data):
 
 
 def concate_all_data(exam_data, study_data):
+    #study_data = df_StudData
     study_data = study_data.sort_values(by=['mtknr', 'semester'], ascending = [True, True])
     exam_data = exam_data.rename(columns = {'psem' : 'semester'})
     exam_data = exam_data.sort_values(by=['mtknr', 'semester'], ascending = [True, True])
@@ -111,6 +125,7 @@ def concate_all_data(exam_data, study_data):
             j += 1  
         i += 1   
     exam_data = exam_data[(exam_data.Bereich_1 !=0) |(exam_data.prftitel == 'Gesamtkonto') ]
+    exam_data = exam_data[exam_data.stg.notna()]
     exam_data = exam_data.astype({'mtknr': int, 'stg': int} )
     study_data = study_data.astype({'mtknr': int, 'stg': int} )
     data_concenated = exam_data.merge(study_data, on=['mtknr', 'stg', 'semester'], how='outer')        
@@ -139,7 +154,7 @@ def concate_all_data(exam_data, study_data):
                 data_concenated.loc[zeile, 'fachsem'] = data_concenated.loc[zeile - 1, 'fachsem']
     
     idex_2 = sorted(data_concenated.index[data_concenated['MNR_neu'].isnull()].tolist(), reverse = True)
-    for zeile in idex_2:
+    for zeile in idex_2[1:]:
         if (data_concenated.loc[zeile, 'mtknr'] == data_concenated.loc[zeile + 1, 'mtknr']) & (data_concenated.loc[zeile, 'stg'] == data_concenated.loc[zeile + 1, 'stg']):
             data_concenated.loc[zeile, ['MNR_neu', 'MNR_Zweit', 'studiengang', 'stutyp', 'schwerpunkt_bei_abschluss', 'geschl', 
                                     'gebdat', 'staat', 'hzbnote', 'hzb_erwerbsort', 'hzbart', 'hzbdatum', 'immadat', 
