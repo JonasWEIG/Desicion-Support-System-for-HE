@@ -8,3 +8,6 @@
 # exclude models from source control
 /models/
 
+# exclude pycach
+__pycache__/
+*.pyc
