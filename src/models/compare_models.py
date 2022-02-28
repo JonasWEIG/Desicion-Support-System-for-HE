@@ -102,11 +102,13 @@ def neural_net(x_train, y_train, x_test, y_test):
         pickle.dump(modelann, file)
 
 if __name__ == '__main__':
+    #for master change path from bachelor to master 
     df_StudStart = pd.read_pickle(os.path.abspath('../../data/interim/bachelor/df_studstart_without_prediction.pkl'))
     df_Path = pd.read_pickle(os.path.abspath('../../data/interim/bachelor/df_path.pkl'))
     df_demo = pd.read_pickle(os.path.abspath('../../data/interim/bachelor/df_demo.pkl'))
     for semester in range(1,2):
-        Final = prepare_final_files(semester, df_StudStart, df_Path, df_demo)[1]
+        #for master add 'master in function
+        Final = prepare_final_files(semester, df_StudStart, df_Path, df_demo, 'bachelor')[1]
         
         x_train, x_test, y_train, y_test = train_test_split(Final.drop(['MNR_Zweit', 'Startsemester', 'studiengang', 'final'], axis = 1), 
                                                             Final.final, test_size = 0.25, random_state = 0)
@@ -117,3 +119,5 @@ if __name__ == '__main__':
         support_vector_machine(x_train, y_train, x_test, y_test)
         neural_net(x_train, y_train, x_test, y_test)
 
+import numpy as np
+np.version
